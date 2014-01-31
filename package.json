@@ -1,0 +1,28 @@
+{
+  "name": "sentinel-redis",
+  "version": "0.0.0",
+  "description": "Redis Sentinel client for Node.JS",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/eknkc/sentinel-redis.git"
+  },
+  "keywords": [
+    "redis",
+    "sentinel",
+    "high",
+    "availability",
+    "replication",
+    "master",
+    "slave"
+  ],
+  "author": "Ekin Koc",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/eknkc/sentinel-redis/issues"
+  },
+  "homepage": "https://github.com/eknkc/sentinel-redis"
+}
