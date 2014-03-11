@@ -1,5 +1,4 @@
 var redis = require("redis");
-var async = require("async");
 var events = require("events");
 var util = require("util");
 var net = require('net');
@@ -89,57 +88,55 @@ Sentinel.prototype.createClient = function (name, coptions) {
 }
 
 Sentinel.prototype.getMaster = function (name, next) {
-  var index = 0
-    , master = null
+  var handled = false
     , self = this
+    , count = 0
 
   next = next || function() {};
 
-  async.until(function () {
-    return master || index >= self.sentinels.length;
-  }, function (next) {
-    var client = self.sentinels[index++];
+  function onResponse(err, result, client) {
+    if (handled)
+      return;
 
-    client.send_command('SENTINEL', ['get-master-addr-by-name', name], function(err, result) {
-      if (err || !result)
-        return process.nextTick(next);
+    count++;
 
-      if (index > 1) {
-        self.sentinels.splice(index - 1, 1);
-        self.sentinels.splice(0, 0, client);
+    if (err || !result) {
+      if (count == self.sentinels.length) {
+        handled = true;
+
+        var err = new Error("Unable to determine master for " + name);
+        self.emit(err);
+        return next(err);
       }
 
-      if (self.activeClient !== client) {
-        self.activeClient = client;
-
-        if (self.listener)
-          self.listener.end();
-
-        self.listener = redis.createClient(client.port, client.host);
-
-        self.listener.on('error', function (err) {});
-
-        self.listener.on('pmessage', function(channel, msg, data) {
-          if (msg == '+switch-master')
-            self.emit('switch-master', data.split(/\s+/)[0]);
-        });
-
-        self.listener.psubscribe('*');
-      }
-
-      master = { host: result[0], port: result[1] };
-      process.nextTick(next);
-    });
-  }, function (err) {
-    if (err) return next(err);
-
-    if (!master) {
-      var err = new Error("Unable to determine master for " + name);
-      self.emit('error', err);
-      return next(err);
+      return;
     }
 
-    next(null, master);
+    if (self.activeClient !== client) {
+      self.activeClient = client;
+
+      if (self.listener)
+        self.listener.end();
+
+      self.listener = redis.createClient(client.port, client.host);
+      self.listener.on('error', function (err) {});
+
+      self.listener.on('pmessage', function(channel, msg, data) {
+        if (msg == '+switch-master')
+          self.emit('switch-master', data.split(/\s+/)[0]);
+      });
+
+      self.listener.psubscribe('*');
+    }
+
+    handled = true;
+    next(null, { host: result[0], port: result[1] })
+  }
+
+  self.sentinels.forEach(function (client) {
+    client.send_command('SENTINEL', ['get-master-addr-by-name', name], function(err, result) {
+      setImmediate(function() { onResponse(err, result, client); });
+    });
   });
 };
 

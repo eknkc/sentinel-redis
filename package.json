@@ -26,7 +26,6 @@
   },
   "homepage": "https://github.com/eknkc/sentinel-redis",
   "dependencies": {
-    "async": "~0.2.10",
     "redis": "~0.10.0"
   }
 }
