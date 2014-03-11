@@ -9,11 +9,12 @@ function Sentinel(sentinels) {
 
   this.sentinels = sentinels.map(function (sentinel) {
     var client = redis.createClient(sentinel.port, sentinel.host, { retry_max_delay: 2500 })
-    client.on('error', function () { });
+    client.on('error', function (err) {});
     return client;
   });
 
   events.EventEmitter.call(this);
+  this.setMaxListeners(250);
 };
 
 util.inherits(Sentinel, events.EventEmitter);
@@ -92,7 +93,32 @@ Sentinel.prototype.getMaster = function (name, next) {
     , self = this
     , count = 0
 
-  next = next || function() {};
+  var sentinels = self.sentinels.slice();
+
+  if (self.activeClient) {
+    for (var i = sentinels.length - 1; i >= 0; i--) {
+      if (sentinels[i] === self.activeClient) {
+        sentinels.splice(i, 1);
+        sentinels.splice(0, 0, self.activeClient);
+        break;
+      }
+    }
+  }
+
+  var max = sentinels.length;
+
+  (function query() {
+    if (handled || !sentinels.length)
+      return;
+
+    var client = sentinels.shift();
+
+    client.send_command('SENTINEL', ['get-master-addr-by-name', name], function(err, result) {
+      setImmediate(function() { onResponse(err, result, client); });
+    });
+
+    setTimeout(query, 500);
+  })();
 
   function onResponse(err, result, client) {
     if (handled)
@@ -101,12 +127,12 @@ Sentinel.prototype.getMaster = function (name, next) {
     count++;
 
     if (err || !result) {
-      if (count == self.sentinels.length) {
+      if (count == max) {
         handled = true;
 
         var err = new Error("Unable to determine master for " + name);
         self.emit(err);
-        return next(err);
+        next(err);
       }
 
       return;
@@ -116,10 +142,10 @@ Sentinel.prototype.getMaster = function (name, next) {
       self.activeClient = client;
 
       if (self.listener)
-        self.listener.end();
+        self.listener.quit();
 
       self.listener = redis.createClient(client.port, client.host);
-      self.listener.on('error', function (err) {});
+      self.listener.on('error', function (err) { });
 
       self.listener.on('pmessage', function(channel, msg, data) {
         if (msg == '+switch-master')
@@ -130,14 +156,12 @@ Sentinel.prototype.getMaster = function (name, next) {
     }
 
     handled = true;
-    next(null, { host: result[0], port: result[1] })
-  }
 
-  self.sentinels.forEach(function (client) {
-    client.send_command('SENTINEL', ['get-master-addr-by-name', name], function(err, result) {
-      setImmediate(function() { onResponse(err, result, client); });
-    });
-  });
+    next(null, {
+      host: result[0],
+      port: result[1]
+    })
+  }
 };
 
 module.exports = Sentinel;
